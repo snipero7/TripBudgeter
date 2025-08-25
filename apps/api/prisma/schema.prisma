@@ -1,9 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
   output   = "../generated/prisma"
@@ -12,4 +9,422 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  phone         String?   @unique
+  name          String
+  tz            String?
+  locale        String?
+  passwordHash  String?
+  provider      String?
+  createdAt     DateTime  @default(now())
+  isActive      Boolean   @default(true) @map("is_active")
+
+  roles         UserRole[]
+  devices       Device[]
+  subscriptions Subscription[]
+  trips         Trip[]
+  tripMembers   TripMember[]
+  notifications Notification[]
+  auditLogs     AuditLog[]
+
+  @@map("users")
+  @@index([isActive])
+}
+
+model Role {
+  id    String     @id @default(uuid())
+  name  String     @unique
+
+  users UserRole[]
+
+  @@map("roles")
+}
+
+model UserRole {
+  userId String
+  roleId String
+
+  user User @relation(fields: [userId], references: [id])
+  role Role @relation(fields: [roleId], references: [id])
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+  @@unique([userId, roleId])
+  @@index([userId])
+  @@index([roleId])
+}
+
+model Device {
+  id          String    @id @default(uuid())
+  userId      String
+  fcmToken    String    @unique @map("fcm_token")
+  platform    String
+  lastSeenAt  DateTime  @map("last_seen_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("devices")
+  @@index([userId])
+}
+
+model Plan {
+  id          String    @id @default(uuid())
+  code        String    @unique
+  name        String
+  priceCents  Int       @map("price_cents")
+  currency    String
+  interval    String
+  featuresJson Json      @map("features_json")
+  isActive    Boolean   @default(true) @map("is_active")
+
+  subscriptions Subscription[]
+
+  @@map("plans")
+  @@index([isActive])
+}
+
+model Subscription {
+  id          String    @id @default(uuid())
+  userId      String
+  planId      String
+  status      String
+  startAt     DateTime  @map("start_at")
+  endAt       DateTime? @map("end_at")
+  autoRenew   Boolean   @map("auto_renew")
+  trialEndAt  DateTime? @map("trial_end_at")
+
+  user    User @relation(fields: [userId], references: [id])
+  plan    Plan @relation(fields: [planId], references: [id])
+  invoices Invoice[]
+
+  @@map("subscriptions")
+  @@index([userId])
+  @@index([planId])
+  @@index([status])
+}
+
+model Invoice {
+  id            String    @id @default(uuid())
+  subscriptionId String
+  amountCents   Int       @map("amount_cents")
+  currency      String
+  status        String
+  issuedAt      DateTime  @map("issued_at")
+  paidAt        DateTime? @map("paid_at")
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id])
+  payments     Payment[]
+
+  @@map("invoices")
+  @@index([subscriptionId])
+  @@index([status])
+}
+
+model Payment {
+  id              String    @id @default(uuid())
+  invoiceId       String
+  provider        String
+  providerPaymentId String    @unique @map("provider_payment_id")
+  amountCents     Int       @map("amount_cents")
+  currency        String
+  status          String
+  createdAt       DateTime  @map("created_at")
+  capturedAt      DateTime? @map("captured_at")
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@map("payments")
+  @@index([invoiceId])
+  @@index([status])
+}
+
+model Coupon {
+  id              String    @id @default(uuid())
+  code            String    @unique
+  type            String
+  amountOffCents  Int?      @map("amount_off_cents")
+  percentOff      Float?    @map("percent_off")
+  validFrom       DateTime? @map("valid_from")
+  validUntil      DateTime? @map("valid_until")
+  appliesToPlanId String?   @map("applies_to_plan_id")
+  maxRedemptions  Int?      @map("max_redemptions")
+  redeemedCount   Int       @default(0) @map("redeemed_count")
+
+  @@map("coupons")
+}
+
+model Trip {
+  id            String    @id @default(uuid())
+  ownerId       String
+  name          String
+  startDate     DateTime  @map("start_date")
+  endDate       DateTime? @map("end_date")
+  baseCurrency  String    @map("base_currency")
+  emergencyPct  Float     @map("emergency_pct")
+  status        String
+  deletedAt     DateTime? @map("deleted_at")
+
+  owner         User @relation(fields: [ownerId], references: [id])
+  members       TripMember[]
+  expenses      Expense[]
+  categories    TripCategory[]
+  settlements   Settlement[]
+  documents     Document[]
+
+  @@map("trips")
+  @@index([ownerId])
+  @@index([startDate])
+  @@index([endDate])
+  @@index([status])
+  @@index([deletedAt])
+}
+
+model TripMember {
+  id        String    @id @default(uuid())
+  tripId    String
+  userId    String?
+  guestName String?   @map("guest_name")
+  role      String
+  weight    Float     @default(1)
+
+  trip    Trip @relation(fields: [tripId], references: [id])
+  user    User? @relation(fields: [userId], references: [id])
+  expenses Expense[]
+  expenseSplits ExpenseSplit[]
+  settlementsFrom Settlement[] @relation("SettlementFrom")
+  settlementsTo Settlement[] @relation("SettlementTo")
+
+  @@map("trip_members")
+  @@index([tripId])
+  @@index([userId])
+}
+
+model Category {
+  id          String    @id @default(uuid())
+  ownerUserId String?   @map("owner_user_id")
+  code        String    @unique
+  name        String
+  icon        String?
+  isSystem    Boolean   @default(false) @map("is_system")
+
+  tripCategories TripCategory[]
+  expenses       Expense[]
+
+  @@map("categories")
+  @@index([ownerUserId])
+  @@index([isSystem])
+  @@unique([code], map: "unique_category_code")
+}
+
+model TripCategory {
+  id         String @id @default(uuid())
+  tripId     String
+  categoryId String
+  budgetCents Int   @map("budget_cents")
+
+  trip     Trip @relation(fields: [tripId], references: [id])
+  category Category @relation(fields: [categoryId], references: [id])
+
+  @@map("trip_categories")
+  @@unique([tripId, categoryId])
+  @@index([tripId])
+  @@index([categoryId])
+}
+
+model Expense {
+  id            String    @id @default(uuid())
+  tripId        String
+  memberPayerId String    @map("member_payer_id")
+  categoryId    String
+  amount        Int
+  currency      String
+  fxRateUsed    Float?    @map("fx_rate_used")
+  amountBase    Int       @map("amount_base")
+  spentAt       DateTime  @map("spent_at")
+  notes         String?
+  method        String
+  isPrepaid     Boolean   @map("is_prepaid")
+  isRefundable  Boolean   @map("is_refundable")
+  deletedAt     DateTime? @map("deleted_at")
+
+  trip        Trip @relation(fields: [tripId], references: [id])
+  memberPayer TripMember @relation(fields: [memberPayerId], references: [id])
+  category    Category @relation(fields: [categoryId], references: [id])
+  splits      ExpenseSplit[]
+  receipt     Receipt?
+  ocrJob      OcrJob?
+
+  @@map("expenses")
+  @@index([tripId])
+  @@index([memberPayerId])
+  @@index([categoryId])
+  @@index([amountBase])
+  @@index([spentAt])
+  @@index([deletedAt])
+}
+
+model ExpenseSplit {
+  id        String @id @default(uuid())
+  expenseId String
+  memberId  String
+  shareBase Int    @map("share_base")
+
+  expense Expense @relation(fields: [expenseId], references: [id])
+  member  TripMember @relation(fields: [memberId], references: [id])
+
+  @@map("expense_splits")
+  @@index([expenseId])
+  @@index([memberId])
+}
+
+model Settlement {
+  id          String    @id @default(uuid())
+  tripId      String
+  fromMemberId String    @map("from_member_id")
+  toMemberId  String    @map("to_member_id")
+  amountBase  Int       @map("amount_base")
+  method      String
+  settledAt   DateTime  @map("settled_at")
+
+  trip       Trip @relation(fields: [tripId], references: [id])
+  fromMember TripMember @relation("SettlementFrom", fields: [fromMemberId], references: [id])
+  toMember   TripMember @relation("SettlementTo", fields: [toMemberId], references: [id])
+
+  @@map("settlements")
+  @@index([tripId])
+  @@index([fromMemberId])
+  @@index([toMemberId])
+  @@index([settledAt])
+}
+
+model FxRate {
+  id      String    @id @default(uuid())
+  base    String
+  quote   String
+  rate    Float
+  asOfDate DateTime  @map("as_of_date")
+  source  String
+
+  @@map("fx_rates")
+  @@unique([base, quote, asOfDate])
+  @@index([asOfDate])
+}
+
+model Document {
+  id          String    @id @default(uuid())
+  tripId      String
+  type        String
+  fileUrl     String    @map("file_url")
+  originalName String    @map("original_name")
+  uploadedBy  String
+  uploadedAt  DateTime  @map("uploaded_at")
+
+  trip Trip @relation(fields: [tripId], references: [id])
+
+  @@map("documents")
+  @@index([tripId])
+}
+
+model Receipt {
+  id          String    @id @default(uuid())
+  expenseId   String    @unique
+  fileUrl     String    @map("file_url")
+  ocrText     String?   @map("ocr_text")
+  ocrAmount   Int?      @map("ocr_amount")
+  confidence  Float?
+
+  expense Expense @relation(fields: [expenseId], references: [id])
+
+  @@map("receipts")
+  @@index([expenseId])
+}
+
+model OcrJob {
+  id          String    @id @default(uuid())
+  expenseId   String    @unique
+  status      String
+  startedAt   DateTime  @map("started_at")
+  finishedAt  DateTime? @map("finished_at")
+  error       String?
+
+  expense Expense @relation(fields: [expenseId], references: [id])
+
+  @@map("ocr_jobs")
+  @@index([expenseId])
+  @@index([status])
+}
+
+model AdsBanner {
+  id            String    @id @default(uuid())
+  title         String
+  imageUrl      String    @map("image_url")
+  linkUrl       String    @map("link_url")
+  placement     String
+  priority      Int
+  startAt       DateTime  @map("start_at")
+  endAt         DateTime  @map("end_at")
+  countries     String[]
+  minAppVersion String?   @map("min_app_version")
+  isActive      Boolean   @default(true) @map("is_active")
+  deletedAt     DateTime? @map("deleted_at")
+
+  targets AdsTarget[]
+
+  @@map("ads_banners")
+  @@index([placement])
+  @@index([priority])
+  @@index([startAt])
+  @@index([endAt])
+  @@index([isActive])
+  @@index([deletedAt])
+}
+
+model AdsTarget {
+  id        String @id @default(uuid())
+  bannerId  String
+  attribute String
+  operator  String
+  value     String
+
+  banner AdsBanner @relation(fields: [bannerId], references: [id])
+
+  @@map("ads_targets")
+  @@index([bannerId])
+}
+
+model Notification {
+  id        String    @id @default(uuid())
+  userId    String
+  type      String
+  title     String
+  body      String
+  payloadJson Json      @map("payload_json")
+  sentAt    DateTime  @map("sent_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("notifications")
+  @@index([userId])
+  @@index([sentAt])
+}
+
+model AuditLog {
+  id          String    @id @default(uuid())
+  actorUserId String?   @map("actor_user_id")
+  action      String
+  entity      String
+  entityId    String
+  metadataJson Json      @map("metadata_json")
+  ip          String?
+  createdAt   DateTime  @map("created_at")
+
+  actor User? @relation(fields: [actorUserId], references: [id])
+
+  @@map("audit_logs")
+  @@index([actorUserId])
+  @@index([createdAt])
 }
