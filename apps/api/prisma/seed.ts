@@ -62,7 +62,7 @@ async function main() {
   console.log('Seed data created successfully!');
 }
 
-main()
+void main()
   .catch((e) => {
     console.error(e);
     process.exit(1);
